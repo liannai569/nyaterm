@@ -71,6 +71,9 @@ interface FileListItemProps {
   onInlineRenameChange: (value: string) => void;
   onInlineRenameSubmit: () => void;
   onInlineRenameCancel: () => void;
+  // 拖出：在行上按下时预取、开始拖拽时发起原生拖出。父目录行(..)不参与。
+  onRowPrefetch?: (entry: FileEntry) => void;
+  onRowDragStart?: (entry: FileEntry, event: React.DragEvent) => void;
 }
 
 function formatModifiedTime(unix: number): string {
@@ -118,6 +121,8 @@ export function FileListItem({
   onInlineRenameChange,
   onInlineRenameSubmit,
   onInlineRenameCancel,
+  onRowPrefetch,
+  onRowDragStart,
 }: FileListItemProps) {
   const { t } = useTranslation();
   const renameInputRef = useRef<HTMLInputElement | null>(null);
@@ -213,6 +218,7 @@ export function FileListItem({
       <ContextMenuTrigger asChild>
         <li
           className="grid h-[30px] items-center rounded transition-colors cursor-pointer select-none"
+          draggable={!isParentDirectoryEntry && !isRenaming}
           style={{
             gridTemplateColumns: columnTemplate,
             width: rowWidth,
@@ -237,6 +243,19 @@ export function FileListItem({
               return;
             }
             onSelectionStart(entry, e);
+            // 按下即预取（仅左键、非父目录、非重命名态）
+            if (e.button === 0 && !isParentDirectoryEntry && !isRenaming) {
+              onRowPrefetch?.(entry);
+            }
+          }}
+          onDragStart={(e) => {
+            if (isParentDirectoryEntry || isRenaming) {
+              e.preventDefault();
+              return;
+            }
+            // 取消会被资源管理器拒绝的 HTML5 拖拽，改由原生插件接管。
+            e.preventDefault();
+            onRowDragStart?.(entry, e);
           }}
           onDoubleClick={() => {
             clearPendingRenameClick();
