@@ -1344,45 +1344,45 @@ function FileExplorer({
     return currentPath === "/" ? `/${entry.name}` : `${currentPath}/${entry.name}`;
   };
 
-  // 拖出到 Windows 桌面：临时目录根（系统 tmp），启动时取一次并缓存供同步的 tempPathFor 使用。
-  const dragTempRootRef = useRef("");
-  useEffect(() => {
-    tempDir()
-      .then((dir) => {
-        dragTempRootRef.current = dir;
-      })
-      .catch(() => {
-        /* 取不到临时目录根时，真正拖拽时会走 DragOutController.onError 报错 */
-      });
-  }, []);
-
-  // 本地临时落盘路径：按类型分目录（文件/文件夹），并用短随机子目录规避同名冲突。
-  const buildDragTempPath = useCallback((item: DragItem) => {
-    const kind = item.isDir ? "dragout-dir" : "dragout";
-    return `${dragTempRootRef.current}/nyaterm/${kind}/${crypto.randomUUID()}/${item.localName}`;
-  }, []);
-
   // 拖出控制器：随会话切换重建（缓存按会话隔离）。
+  // 先 await 系统临时目录根、就绪后再构造 controller —— 避免根未就绪（或 tempDir 失败）
+  // 时拼出缺少系统临时目录前缀的坏路径（会逃出后端启动清理目录、并可能触发权限错误）。
   const dragOutRef = useRef<DragOutController | null>(null);
   useEffect(() => {
+    dragOutRef.current = null; // 根就绪前保持不可用：预取/拖拽会安全 no-op
     if (!activeSessionId) {
-      dragOutRef.current = null;
       return;
     }
     const sid = activeSessionId;
-    dragOutRef.current = new DragOutController({
-      // 静默下载（不传 transferId → 不进传输队列）
-      downloadFile: (remotePath, localPath) =>
-        invoke<void>("download_remote_file", { sessionId: sid, remotePath, localPath }),
-      downloadDir: (remotePath, localPath) =>
-        invoke<void>("download_remote_directory", { sessionId: sid, remotePath, localPath }),
-      // icon 为插件要求的必填拖拽预览图，直接用已落盘的首个本地文件兜底：
-      // 非图片格式时原生侧读取失败会静默忽略预览（拖拽本身仍正常完成）。
-      startDrag: (paths) => startDrag({ item: paths, icon: paths[0] }),
-      tempPathFor: buildDragTempPath,
-      onError: (err) => toast.error(t("fileExplorer.dragOutFailed", { error: String(err) })),
-    });
-  }, [activeSessionId, t, buildDragTempPath]);
+    let cancelled = false;
+    tempDir()
+      .then((tempRoot) => {
+        if (cancelled) return;
+        dragOutRef.current = new DragOutController({
+          // 静默下载（不传 transferId → 不进传输队列）
+          downloadFile: (remotePath, localPath) =>
+            invoke<void>("download_remote_file", { sessionId: sid, remotePath, localPath }),
+          downloadDir: (remotePath, localPath) =>
+            invoke<void>("download_remote_directory", { sessionId: sid, remotePath, localPath }),
+          // icon 为插件要求的必填拖拽预览图，直接用已落盘的首个本地文件兜底：
+          // 非图片格式时原生侧读取失败会静默忽略预览（拖拽本身仍正常完成）。
+          startDrag: (paths) => startDrag({ item: paths, icon: paths[0] }),
+          // 本地临时落盘路径：确保落在系统临时目录下的 nyaterm/dragout(-dir)（与后端启动
+          // 清理目录一致），短随机子目录规避同名冲突。
+          tempPathFor: (item) => {
+            const kind = item.isDir ? "dragout-dir" : "dragout";
+            return `${tempRoot}/nyaterm/${kind}/${crypto.randomUUID()}/${item.localName}`;
+          },
+          onError: (err) => toast.error(t("fileExplorer.dragOutFailed", { error: String(err) })),
+        });
+      })
+      .catch(() => {
+        // 取不到系统临时目录根（极端情况）：controller 保持 null，拖拽功能不可用而非产出坏路径。
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSessionId, t]);
 
   // 远程完整路径：当前目录 + 文件名（复用上传路径拼接规则）。
   const toDragItem = useCallback((entry: FileEntry): DragItem => {
