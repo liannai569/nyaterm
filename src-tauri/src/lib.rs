@@ -6,6 +6,7 @@ mod app;
 mod cmd;
 mod config;
 mod core;
+mod dragout;
 mod error;
 mod observability;
 mod platform;
@@ -63,6 +64,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_drag::init())
         .manage(session_manager.clone())
         .manage(tunnel_manager.clone())
         .manage(recording_manager.clone())
@@ -76,6 +78,8 @@ pub fn run() {
         .manage(docker_sudo_manager.clone())
         .manage(app_lock_state)
         .setup(move |a| {
+            // 启动即清理上次拖出留下的临时文件（此刻必无进行中的拖拽）。
+            crate::dragout::cleanup_dragout_temp();
             app::setup(
                 a,
                 session_manager,
