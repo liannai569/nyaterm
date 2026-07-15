@@ -594,6 +594,7 @@
     "deleteFailedItem": "항목 하나를 삭제하지 못했습니다",
     "directoryHistory": "디렉터리 기록",
     "downloadSelected": "다운로드",
+    "dragOutFailed": "드래그 아웃 실패: {{error}}",
     "editPath": "클릭하여 경로 편집",
     "emptyDirectory": "비어 있음",
     "externalDropOverlayHint": "파일과 폴더가 SFTP로 업로드됩니다",

@@ -597,6 +597,7 @@
     "deleteFailedItem": "Failed to delete one item",
     "directoryHistory": "Directory History",
     "downloadSelected": "Download",
+    "dragOutFailed": "Drag out failed: {{error}}",
     "editPath": "Click to edit path",
     "emptyDirectory": "Empty",
     "externalDropOverlayHint": "Files and folders will be uploaded via SFTP",

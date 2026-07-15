@@ -1,3 +1,4 @@
+import { startDrag } from "@crabnebula/tauri-plugin-drag";
 import { emit, listen } from "@tauri-apps/api/event";
 import { downloadDir, join, tempDir } from "@tauri-apps/api/path";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
@@ -69,6 +70,7 @@ import type {
   FileExplorerProps,
   SessionInfo,
 } from "@/types/global";
+import { type DragItem, DragOutController } from "./dragOut";
 import { FileExplorerDialogs } from "./FileExplorerDialogs";
 import { FileExplorerPathBar } from "./FileExplorerPathBar";
 import { FileExplorerToolbar } from "./FileExplorerToolbar";
@@ -1342,6 +1344,85 @@ function FileExplorer({
     return currentPath === "/" ? `/${entry.name}` : `${currentPath}/${entry.name}`;
   };
 
+  // 拖出到 Windows 桌面：临时目录根（系统 tmp），启动时取一次并缓存供同步的 tempPathFor 使用。
+  const dragTempRootRef = useRef("");
+  useEffect(() => {
+    tempDir()
+      .then((dir) => {
+        dragTempRootRef.current = dir;
+      })
+      .catch(() => {
+        /* 取不到临时目录根时，真正拖拽时会走 DragOutController.onError 报错 */
+      });
+  }, []);
+
+  // 本地临时落盘路径：按类型分目录（文件/文件夹），并用短随机子目录规避同名冲突。
+  const buildDragTempPath = useCallback((item: DragItem) => {
+    const kind = item.isDir ? "dragout-dir" : "dragout";
+    return `${dragTempRootRef.current}/nyaterm/${kind}/${crypto.randomUUID()}/${item.localName}`;
+  }, []);
+
+  // 拖出控制器：随会话切换重建（缓存按会话隔离）。
+  const dragOutRef = useRef<DragOutController | null>(null);
+  useEffect(() => {
+    if (!activeSessionId) {
+      dragOutRef.current = null;
+      return;
+    }
+    const sid = activeSessionId;
+    dragOutRef.current = new DragOutController({
+      // 静默下载（不传 transferId → 不进传输队列）
+      downloadFile: (remotePath, localPath) =>
+        invoke<void>("download_remote_file", { sessionId: sid, remotePath, localPath }),
+      downloadDir: (remotePath, localPath) =>
+        invoke<void>("download_remote_directory", { sessionId: sid, remotePath, localPath }),
+      // icon 为插件要求的必填拖拽预览图，直接用已落盘的首个本地文件兜底：
+      // 非图片格式时原生侧读取失败会静默忽略预览（拖拽本身仍正常完成）。
+      startDrag: (paths) => startDrag({ item: paths, icon: paths[0] }),
+      tempPathFor: buildDragTempPath,
+      onError: (err) => toast.error(t("fileExplorer.dragOutFailed", { error: String(err) })),
+    });
+  }, [activeSessionId, t, buildDragTempPath]);
+
+  // 远程完整路径：当前目录 + 文件名（复用上传路径拼接规则）。
+  const toDragItem = useCallback((entry: FileEntry): DragItem => {
+    return {
+      remotePath: buildRemoteUploadPath(
+        normalizeDirectoryPath(currentPathRef.current) || "/",
+        entry.name,
+      ),
+      localName: entry.name,
+      size: entry.size,
+      mtime: entry.mtime,
+      isDir: entry.is_dir,
+    };
+  }, []);
+
+  const handleRowPrefetch = useCallback(
+    (entry: FileEntry) => {
+      dragOutRef.current?.prefetch(toDragItem(entry));
+    },
+    [toDragItem],
+  );
+
+  const handleRowDragStart = useCallback(
+    (entry: FileEntry) => {
+      const controller = dragOutRef.current;
+      if (!controller) return;
+      // 多选拖出：若被拖行在当前选中集合内且选了多项，则拖全部选中项；否则只拖这一行。
+      const names =
+        selectedFiles.has(entry.name) && selectedFiles.size > 1
+          ? Array.from(selectedFiles)
+          : [entry.name];
+      const items = names
+        .map((name) => files.find((f) => f.name === name))
+        .filter((f): f is FileEntry => !!f && !isParentDirectoryEntry(f))
+        .map(toDragItem);
+      void controller.startDragOut(items);
+    },
+    [selectedFiles, files, toDragItem],
+  );
+
   const beginInlineRename = useCallback(
     (entry: FileEntry) => {
       if (!activeSessionId || isParentDirectoryEntry(entry)) return;
@@ -2021,6 +2102,8 @@ function FileExplorer({
                           onSelectionStart={handleSelectionStart}
                           onSelectionDrag={handleSelectionDrag}
                           onContextMenuSelect={handleContextMenuSelection}
+                          onRowPrefetch={handleRowPrefetch}
+                          onRowDragStart={(entry) => handleRowDragStart(entry)}
                           onItemClick={handleItemClick}
                           onOpenDefault={handleOpenDefault}
                           onOpenInternal={handleOpenInternal}

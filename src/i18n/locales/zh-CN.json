@@ -597,6 +597,7 @@
     "deleteFailedItem": "有 1 个项目删除失败",
     "directoryHistory": "目录历史",
     "downloadSelected": "下载选中",
+    "dragOutFailed": "拖出失败：{{error}}",
     "editPath": "点击编辑路径",
     "emptyDirectory": "空目录",
     "externalDropOverlayHint": "文件或文件夹将以 SFTP 方式上传",

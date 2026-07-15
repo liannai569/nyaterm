@@ -11,6 +11,7 @@
   ],
   "permissions": [
     "updater:default",
-    "process:allow-restart"
+    "process:allow-restart",
+    "drag:default"
   ]
 }
